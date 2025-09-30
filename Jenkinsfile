@@ -17,24 +17,27 @@ pipeline {
             steps {
                 sh '''
                 python3 -m venv venv
-                . venv/bin/activate
-                pip install -r requirements.txt
+                . venv/bin/activate && pip install --upgrade pip
+                . venv/bin/activate && pip install -r requirements.txt
                 '''
+            }
+        }
+
+        stage('DVC Pull Data') {
+            steps {
+                sh '. venv/bin/activate && dvc pull'
             }
         }
 
         stage('Reproduce Pipeline with DVC') {
             steps {
-                sh '''
-                . venv/bin/activate
-                dvc repro
-                '''
+                sh '. venv/bin/activate && dvc repro'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $DOCKER_HUB:latest -f docker/Dockerfile .'
+                sh 'docker build -t $DOCKER_HUB:latest .'
             }
         }
 
