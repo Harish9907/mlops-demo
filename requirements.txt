@@ -1,6 +1,8 @@
-fastapi
-uvicorn[standard]
+pandas
 scikit-learn
 joblib
+flask
 prometheus_client
+dvc
+
 

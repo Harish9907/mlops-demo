@@ -1,29 +1,31 @@
-from fastapi import FastAPI, Response
-from pydantic import BaseModel
+from flask import Flask, request, jsonify
+import pandas as pd
 import joblib
-import numpy as np
-from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, make_wsgi_app
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
-app = FastAPI()
-model = joblib.load("models/model.pkl")
+# Load model
+model = joblib.load("models/model.joblib")
 
-PREDICTIONS = Counter("predictions_total", "Total predictions", ["class"])
+# Metrics
+PREDICTIONS = Counter('predictions_total', 'Total number of predictions made')
 
-class Input(BaseModel):
-    features: list
+# Flask app
+app = Flask(__name__)
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.get_json()
+    df = pd.DataFrame(data)
+    preds = model.predict(df)
+    PREDICTIONS.inc(len(preds))
+    return jsonify(preds.tolist())
 
-@app.post("/predict")
-def predict(inp: Input):
-    X = np.array([inp.features])
-    pred = model.predict(X)[0]
-    PREDICTIONS.labels(class_=str(pred)).inc()
-    return {"prediction": int(pred)}
+# Prometheus metrics endpoint
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/metrics': make_wsgi_app()
+})
 
-@app.get("/metrics")
-def metrics():
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000)
 
