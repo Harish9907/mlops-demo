@@ -1,76 +1,68 @@
 pipeline {
     agent any
+
     environment {
-        DOCKER_HUB_USERNAME = "harish0799"
         IMAGE_NAME = "mlops-demo"
-        GIT_REPO = "https://github.com/harish9907/mlops-demo.git"
-        IMAGE_TAG = "latest"
-        KUBECONFIG_CRED = "kubeconfig" // Jenkins secret ID for kubeconfig file
+        DOCKER_HUB = "harish0799/mlops-demo"
+        DOCKER_CREDENTIALS = "dockerhub-creds"   // Jenkins DockerHub credentials ID
+        PYTHON = "python3"
     }
+
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git "${GIT_REPO}"
+                git branch: 'main',
+                    url: 'https://github.com/your-username/mlops-demo.git'
             }
         }
 
-        stage('Setup Python Environment') {
+        stage('Setup Python & Install Deps') {
             steps {
-                sh 'python -m venv venv'
-                sh './venv/bin/pip install --upgrade pip'
-                sh './venv/bin/pip install -r requirements.txt'
+                sh '''
+                ${PYTHON} -m venv venv
+                . venv/bin/activate
+                pip install --upgrade pip
+                pip install -r requirements.txt
+                pip install dvc[all]
+                '''
             }
         }
 
-        stage('DVC Pull Data') {
+        stage('Reproduce Pipeline with DVC') {
             steps {
-                sh './venv/bin/dvc pull'
-            }
-        }
-
-        stage('Train Model') {
-            steps {
-                sh './venv/bin/python src/train.py'
+                sh '''
+                . venv/bin/activate
+                dvc pull
+                dvc repro
+                '''
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ."
+                sh 'docker build -t $IMAGE_NAME:latest -f docker/Dockerfile .'
             }
         }
 
-        stage('Push Docker to Docker Hub') {
+        stage('Push to DockerHub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
-                    sh "docker push ${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: "DOCKER_USER", passwordVariable: "DOCKER_PASS")]) {
+                    sh '''
+                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    docker tag $IMAGE_NAME:latest $DOCKER_HUB:latest
+                    docker push $DOCKER_HUB:latest
+                    '''
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                // Use kubeconfig stored as Jenkins secret
-                withCredentials([file(credentialsId: "${KUBECONFIG_CRED}", variable: 'KUBECONFIG_FILE')]) {
-                    sh 'export KUBECONFIG=$KUBECONFIG_FILE'
-                    // Update image in deployment
-                    sh "kubectl set image deployment/mlops-demo mlops-demo=${DOCKER_HUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} --record"
-                    // Apply service (only needed if first deployment or changed)
-                    sh 'kubectl apply -f k8s/service.yaml'
-                    // Optional: rollout status to wait for deployment
-                    sh 'kubectl rollout status deployment/mlops-demo'
-                }
+                sh '''
+                kubectl apply -f k8s/deployment.yaml
+                kubectl apply -f k8s/service.yaml
+                '''
             }
-        }
-    }
-
-    post {
-        success {
-            echo 'Pipeline completed successfully!'
-        }
-        failure {
-            echo 'Pipeline failed. Check logs.'
         }
     }
 }
