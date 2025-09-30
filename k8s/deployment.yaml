@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlops-demo-deployment
+  labels:
+    app: mlops-demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mlops-demo
+  template:
+    metadata:
+      labels:
+        app: mlops-demo
+    spec:
+      containers:
+      - name: mlops-demo
+        image: harish0799/mlops-demo:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5000  # Assuming your Flask app runs on 5000
+        env:
+        - name: ENV
+          value: "production"
+
